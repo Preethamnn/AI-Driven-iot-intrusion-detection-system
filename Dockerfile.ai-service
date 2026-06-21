@@ -1,0 +1,51 @@
+# Multi-stage Dockerfile for AI Inference Service
+# Stage 1: Build stage
+FROM python:3.11-slim-bullseye AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Stage 2: Runtime stage
+FROM python:3.11-slim-bullseye
+
+# Create non-root user
+RUN groupadd -r aiuser && useradd -r -g aiuser aiuser
+
+WORKDIR /app
+
+# Copy Python packages from builder
+COPY --from=builder /root/.local /home/aiuser/.local
+
+# Copy application code
+COPY ai_iot_ids/ /app/ai_iot_ids/
+COPY setup.py /app/
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/models /app/logs /app/config /app/data && \
+    chown -R aiuser:aiuser /app
+
+# Set Python path
+ENV PATH=/home/aiuser/.local/bin:$PATH
+ENV PYTHONPATH=/app
+
+# Switch to non-root user
+USER aiuser
+
+# Expose API ports
+EXPOSE 8000 50051
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)"
+
+# Run AI inference service
+CMD ["python", "-m", "ai_iot_ids.inference.main"]

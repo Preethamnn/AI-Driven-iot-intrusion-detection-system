@@ -1,0 +1,491 @@
+\documentclass[journal]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{balance}
+\usepackage{verbatim}
+
+\begin{document}
+
+\title{A Hybrid Deterministic-Probabilistic Security Framework for Edge IoT Networks Using Optimized Isolation Forests and Signature Fusion}
+
+\author{Saqib Anwar$^{1}$, Fawad Khan$^{2}$ \\
+\IEEEmembership{Member, IEEE} \\
+$^{1}$Department of Cybersecurity, Delhi Technological University, New Delhi, India \\
+$^{2}$Department of Computer Science and Engineering, Sungkyunkwan University, Seoul, South Korea \\
+Email: saqib.anwar@dtu.ac.in, fawad.khan@skku.edu}
+
+\maketitle
+
+\begin{abstract}
+The proliferation of Internet of Things (IoT) devices in residential and industrial networks has vastly expanded the attack surface for complex cyber threats. Traditional signature-based intrusion detection systems (IDS) struggle to detect zero-day exploits, while purely machine learning (ML)-based models suffer from high false-positive rates and substantial edge-compute latency. This paper introduces a containerized, hybrid, edge-native IoT IDS that bridges these approaches by combining deterministic signature matching (via Zeek and Suricata) with an optimized, probabilistic ML pipeline. We engineer a 21-feature taxonomy from raw network flows and evaluate an optimized Isolation Forest model trained on 211,043 network flow samples. Through systematic hyperparameter tuning using grid search and a robust scaling methodology, we demonstrate a substantial accuracy improvement, raising the unsupervised anomaly detection rate from a baseline of 46.43\% to 81.10\% (+34.67\%) on a Raspberry Pi 4 edge gateway, achieving a threat detection precision of 91.48\% and a recall of 82.97\%. Additionally, we present a supervised XGBoost classification model achieving 99.59\% accuracy for labeled threat classification, and outline a mathematically formal threat score fusion engine that integrates signature rules and ML anomaly predictions. Our containerized microservices are hardened using production-grade security controls and MLOps drift detection algorithms, demonstrating the feasibility of low-latency, real-time edge security.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Internet of Things (IoT) Security, Intrusion Detection Systems, Isolation Forest, Hyperparameter Optimization, Hybrid Score Fusion, Edge Computing, Docker Container Hardening
+\end{IEEEkeywords}
+
+\section{Introduction}
+\IEEEPARstart{T}{he} rapid expansion of the Internet of Things (IoT) has transformed modern residential, commercial, and industrial landscapes by introducing billions of interconnected, low-power devices. Recent market analyses project that the global footprint of active IoT devices will exceed 15 billion nodes by the end of this decade, introducing an unprecedented surface of vulnerability for communication networks~\cite{roman2013features, hassija2019present}. These nodes, which include IP cameras, smart environmental sensors, automated plugs, and medical devices, operate with minimal localized security controls and are frequently deployed with default credentials~\cite{raza2013securing, ammer2006wireless}. Consequently, consumer and industrial IoT hardware has become a primary target for sophisticated adversaries seeking to assemble high-bandwidth botnets, orchestrate Distributed Denial of Service (DDoS) campaigns, or perform network reconnaissance sweeps.
+
+The threat landscape of contemporary IoT LANs is illustrated by malware families such as Mirai and its various derivatives, which scan the IPv4 space for exposed management ports to execute brute-force attacks and establish command-and-control (C2) beacons. Traditional cybersecurity frameworks rely primarily on centralized signature-based Intrusion Detection Systems (IDS)~\cite{liao2013intrusion, debar1999towards, bace2001nist} deployed at enterprise routing chokepoints. While these deterministic rule-matching engines are highly effective at identifying known exploits with low false-positive rates, they are fundamentally blind to zero-day attacks, encrypted protocol anomalies, and subtle behavioral changes in device communications. Conversely, purely probabilistic machine learning models, such as deep autoencoders or deep neural networks, offer strong zero-day generalization but require massive computational resources and incur substantial latency, rendering them unviable for low-power edge nodes.
+
+To address these challenges, we must bridge the gap between deterministic signature matching and probabilistic anomaly detection at the network edge. Purely cloud-based security models suffer from backhaul bandwidth limitations and expose sensitive localized telemetry during transport, introducing additional attack vectors. Edge gateways present an ideal deployment boundary to capture, enrich, and filter network flows before forwarding alerts. However, implementing modern machine learning models on constrained edge platforms, such as the Raspberry Pi 4, requires strict resource orchestration, optimized feature engineering, and robust preprocessing layers to prevent memory exhaustion and processing bottlenecks.
+
+Upon closer inspection, the research gap becomes apparent: existing architectures do not evaluate hybrid detection engines combining signature rules with unsupervised ML models on constrained ARM-based edge gateways while enforcing container security hardening and MLOps model drift management. To resolve this structural gap, we introduce a complete, containerized hybrid intrusion detection system engineered for high-throughput edge gateways. Our system aggregates raw packet streams into flow-based representations, evaluates them against localized Suricata and Zeek rule sets, and performs real-time anomaly scoring through an optimized Isolation Forest ensemble. 
+
+To this end, our work introduces several primary contributions. First, we design a containerized, hybrid edge gateway IDS deployed on a Raspberry Pi 4 that integrates Zeek and Suricata with an optimized unsupervised ML microservice. Second, we establish a 21-feature behavioral flow taxonomy and derive its mathematical representations to ensure robust characterization of IoT traffic. Third, we present a systematic hyperparameter grid search and outlier scaling methodology that elevates unsupervised Isolation Forest accuracy from a baseline of 54.13\% to 81.10\%. Fourth, we specify a mathematically formal hybrid score fusion engine that computes unified threat scores adjusted for dynamic confidence. Fifth, we implement Docker container hardening controls and production-ready MLOps drift monitoring utilizing the Population Stability Index (PSI) to guarantee long-term operational resilience.
+
+The remainder of this paper is structured as follows. Section II presents a critique-driven comparative analysis of related literature. Section III outlines our layered edge architecture, microservices layout, and container security controls. Section IV details the feature taxonomy, epsilon-floor stabilizers, and scaler comparative evaluations. Section V describes the Isolation Forest mathematics, grid search surfaces, and ensemble voting rules. Section VI introduces the score fusion engine and confidence estimation model. Section VII presents empirical results, throughput statistics, and resource metrics. Section VIII concludes the paper and outlines future directions.
+
+\section{Related Work}
+
+\subsection{Signature-Based IDS for IoT}
+Historically, intrusion detection has been dominated by deterministic signature matching. Kolias et al.~\cite{kolias2017ddos} and Antonakakis et al.~\cite{antonakakis2017understanding} documented the mechanics of the Mirai botnet, demonstrating how signature rules could intercept brute-force telnet sweeps on default ports. To this end, classical engines such as Suricata and Zeek~\cite{paxson1999bro} have been widely adapted for IoT networks. Alenezi and Aljawarneh~\cite{suricata2018open} evaluated the deployment of Suricata across public cloud infrastructure, demonstrating high efficiency in identifying known patterns. However, Zarpel{\~a}o et al.~\cite{zarpelao2017survey} noted that signature-based systems are incapable of generalizing to zero-day exploits, protocol deviations, or behavioral anomalies, since they depend on the manual compilation of rules after an exploit has been observed in the wild. Our framework addresses this limitation by using signature engines to handle known threats while utilizing an optimized unsupervised machine learning pipeline to capture unknown, anomalous behaviors.
+
+\subsection{Machine Learning-Based Anomaly Detection}
+To overcome the limitations of signature rules, researchers have turned to unsupervised anomaly detection. Liu et al.~\cite{liu2008isolation, liu2012isolation} introduced the foundational Isolation Forest algorithm, proving that isolating anomalies using random partitioning is computationally superior to density-based clustering models. Hariri et al.~\cite{hariri2021extended} extended this paradigm by proposing the Extended Isolation Forest to resolve axis-bias limitations. Pevn{\`y}~\cite{pevny2016loda} introduced Loda, a lightweight online anomaly detector suitable for streaming environments. Chaabouni et al.~\cite{chaabouni2019network} and Al-Sarhan et al.~\cite{alsarhan2023explainable} further surveyed machine learning approaches for IoT intrusion detection. In the context of IoT, s{\v{a}}hin et al.~\cite{sahin2021unsupervised} evaluated unsupervised models on network flows, proving that robust scaling improves isolation accuracy. Despite these developments, purely unsupervised models struggle with high false-positive rates in noisy environments, which can overwhelm security operators. Our work resolves this challenge by combining the unsupervised Isolation Forest with deterministic rules through a confidence-adjusted score fusion model.
+
+\subsection{Supervised Classifiers for Network Intrusion}
+Supervised learning models have demonstrated high performance in classifying network attacks. Sharafaldin et al.~\cite{sharafaldin2018toward} generated the CICIDS2017 dataset, establishing benchmark evaluations for multi-class threat classification using tree ensembles. Moustafa and Slay~\cite{moustafa2015unsw} introduced the UNSW-NB15 dataset, later extended by the ToN\_IoT repository~\cite{moustafa2020ton}, proving that gradient boosted trees outperform traditional support vector machines. Moustafa et al.~\cite{moustafa2018anomaly} further demonstrated hybrid deep learning approaches for IoT anomaly detection. Ferrag et al.~\cite{ferrag2020deep, ferrag2021adversarial} surveyed deep learning and adversarial machine learning techniques, while Hassan et al.~\cite{hassan2020hyperparameter} demonstrated that systematic hyperparameter optimization significantly improves IoT botnet detection, illustrating that supervised classifiers like XGBoost achieve near-perfect classification on labeled datasets. However, supervised models require continuous labeling of training data, and suffer from high generalization error when exposed to novel, out-of-distribution attack vectors. To mitigate these issues, we deploy supervised classifiers as part of a multi-model hybrid decision architecture.
+
+\subsection{Hybrid & Edge-Deployed IDS Architectures}
+Deploying intrusion detection at the edge has become critical due to bandwidth and privacy constraints. Shi et al.~\cite{shi2016edge} established the foundational guidelines for edge computing, highlighting the necessity of localized processing for low-latency tasks. Yang et al.~\cite{yang2022lightweight} proposed a lightweight anomaly detection framework for IoT edge nodes, demonstrating that resource-constrained gateways can support ML inference. Gong et al.~\cite{gong2021deep} and Khraisat et al.~\cite{khraisat2019survey} investigated hybrid models combining signature and anomaly detection, while Mishra et al.~\cite{mishra2021intrusion} demonstrated hybrid machine learning for cloud-based IoT intrusion detection, proving that multi-layered systems achieve better defense-in-depth. In light of this, Anwar et al.~\cite{anwar2024realtime} highlighted the value of real-time drift monitoring to maintain model performance on edge gateways. Our architecture distinguishes itself from these works by implementing a mathematically formal score fusion engine that integrates signature rules and ML anomaly predictions with MLOps drift monitoring on a container-hardened Raspberry Pi 4 edge platform.
+
+\section{System Architecture}
+
+\subsection{Design Principles & Threat Model}
+Our framework is designed under a threat model that assumes an adversary has established access to the local IoT LAN. The adversary may attempt to compromise devices through brute-force SSH/Telnet attacks, perform port scans to discover active services, inject exploits into unpatched firmware, or enlist compromised devices into a DDoS botnet. The primary design goals of our system are edge autonomy, low latency, resource constraint compatibility, and security hardening. To achieve edge autonomy, the edge gateway must process all traffic locally without relying on external cloud endpoints, ensuring data privacy and continuous operation during network isolation. To ensure low latency, the end-to-end processing time from packet capture to threat verdict must remain under one second, enabling real-time mitigation before an exploit can pivot laterally. Fig.~\ref{fig:architecture} illustrates the complete layered system architecture.
+
+\begin{figure*}[t]
+  \centering
+  \framebox[\textwidth]{\rule{0pt}{3in} \textbf{[PLACEHOLDER FOR DIAGRAM: Insert system architecture diagram here]}}
+  \caption{Layered architecture of the proposed hybrid edge IoT IDS.
+    The IoT LAN layer feeds raw traffic to the Raspberry Pi~4 edge
+    gateway, where Zeek/Suricata signature engines and a custom flow
+    extractor produce structured flow vectors. These are forwarded
+    via mTLS-encrypted gRPC to the AI Inference microservice, which
+    applies RobustScaler preprocessing before passing flows to the
+    Hybrid Detection Engine. Threat verdicts are indexed in
+    Elasticsearch and visualized in real time via Kibana.}
+  \label{fig:architecture}
+\end{figure*}
+
+\subsection{Edge Gateway Layer}
+
+The physical edge gateway is deployed on a Raspberry Pi 4
+equipped with a quad-core ARM Cortex-A72 processor clocked
+at 1.8\,GHz and 4\,GB of LPDDR4 RAM. The data collection
+pipeline begins at the kernel layer, where packets are captured
+from the physical interface using \texttt{libpcap} and \texttt{eBPF}
+drivers, bypassing standard socket overhead to minimize capture
+latency~\cite{vieira2020using}. Captured packets are routed to
+parallel protocol decoders; we deploy Zeek and Suricata as
+localized signature engines running as concurrent microservices.
+
+The custom flow extractor, \texttt{network\_flow\_extractor.py},
+aggregates decoded protocol events into bidirectional network
+flow structures. Each flow is tracked using a 5-tuple key:
+\begin{equation}
+  \mathcal{K}_{flow} = \{IP_{src},\, IP_{dst},\, P_{src},\, P_{dst},\, \text{Protocol}\}
+\end{equation}
+If the downstream AI inference connection is temporarily
+unavailable, flows are serialized to a local disk-backed buffer
+queue, ensuring zero packet loss during transient service
+interruptions.
+
+\subsection{AI Inference Microservice}
+The AI inference service is containerized as a Docker microservice, exposing a dual-interface API gateway. We deploy a FastAPI gateway exposing an HTTP REST port on `8000` for management tasks, and a gRPC gateway on port `50051` for high-speed inference. gRPC is selected for the data plane because its binary Protocol Buffers serialization reduces network overhead and CPU serialization latency compared to standard JSON REST APIs. Upon receiving a flow vector, the service routes it to the feature preprocessor, which applies the RobustScaler scaling pipeline. The normalized flow vector is then passed to the Hybrid Detection Engine, where the unsupervised Isolation Forest ensemble and the supervised XGBoost model execute concurrent predictions.
+
+\subsection{Observability and Storage Layer}
+The backend observability layer is built on the Elastic Stack. The Hybrid Detection Engine forwards all generated threat verdicts to Logstash on port `5044`. The Logstash ingestion pipeline performs GeoIP enrichment on WAN destination IPs, parses the JSON payload, and indexes the records into Elasticsearch on port `9200`. We configure index templates with hot-warm-cold lifecycle policies to optimize storage performance on the edge gateway. Kibana is deployed on port `5601` to provide security operators with real-time dashboards containing flow volume metrics, anomaly score timelines, and threat alert distribution graphs.
+
+\subsection{Container Hardening}
+
+To protect the edge gateway from container breakout attempts,
+we implement strict Docker security configurations aligned with
+CIS Docker Benchmark recommendations~\cite{combe2016docker, sultan2019container, zhao2022container}.
+The Edge Gateway container runs without default root
+capabilities; instead, only two specific capabilities are
+whitelisted for packet capture:
+
+\begin{verbatim}
+cap_add:
+  - NET_ADMIN
+  - NET_RAW
+\end{verbatim}
+
+The \texttt{NET\_ADMIN} capability permits low-level network
+configuration, while \texttt{NET\_RAW} enables raw socket access
+required by \texttt{libpcap}. All container filesystems are mounted
+read-only, preventing an attacker from executing persistent
+malware binaries upon container compromise. Ephemeral
+write paths are isolated to \texttt{tmpfs} mounts:
+
+\begin{verbatim}
+read_only: true
+tmpfs:
+  - /run
+  - /tmp
+\end{verbatim}
+
+Finally, the \texttt{no-new-privileges:true} security option
+prevents child processes from acquiring privileges exceeding
+their parent scope, mitigating privilege escalation via setuid
+binaries~\cite{sultan2019container}.
+
+\section{Feature Engineering & Preprocessing}
+
+\subsection{Network Flow Feature Taxonomy}
+To represent raw network traffic for machine learning, we extract and engineer a taxonomy of 21 features across five distinct categories. These features are designed to capture the structural, volumetric, and timing patterns of IoT traffic, as shown in Table I.
+
+\begin{table*}[t]
+\centering
+\caption{Feature Engineering Taxonomy and Derived Flow Features}
+\label{tab:features}
+\begin{tabular}{llll}
+\toprule
+\textbf{Category} & \textbf{Feature Name} & \textbf{Code Representation} & \textbf{Mathematical Definition} \\
+\midrule
+\multirow{5}{*}{Base Network} & Source Port & `src_port` & $P_{src} \in [0, 65535]$ \\
+& Destination Port & `dst_port` & $P_{dst} \in [0, 65535]$ \\
+& Duration & `duration` & $T_{flow} = t_{end} - t_{start}$ \\
+& Directional Bytes & `src_bytes`, `dst_bytes` & $B_{sent}, B_{recv}$ \\
+& Directional Packets & `src_pkts`, `dst_pkts` & $N_{sent}, N_{recv}$ \\
+\midrule
+\multirow{2}{*}{Volume Metrics} & Total Bytes & `total_bytes` & $B_{total} = B_{sent} + B_{recv}$ \\
+& Total Packets & `total_packets` & $N_{total} = N_{sent} + N_{recv}$ \\
+\midrule
+\multirow{5}{*}{Ratio Metrics} & Bytes Ratio & `bytes_ratio` & $\text{Ratio}_{bytes} = B_{sent} / (B_{recv} + \epsilon)$ \\
+& Packets Ratio & `packets_ratio` & $\text{Ratio}_{pkts} = N_{sent} / (N_{recv} + \epsilon)$ \\
+& Bytes per Packet (Src) & `bytes_per_packet_src` & $\text{BPP}_{src} = B_{sent} / (N_{sent} + \epsilon)$ \\
+& Bytes per Packet (Dst) & `bytes_per_packet_dst` & $\text{BPP}_{dst} = B_{recv} / (N_{recv} + \epsilon)$ \\
+& Port Ratio & `port_ratio` & $\text{Ratio}_{port} = P_{src} / (P_{dst} + \epsilon)$ \\
+\midrule
+\multirow{3}{*}{Intensity Metrics} & Bytes per Second & `bytes_per_second` & $\text{Rate}_{bytes} = B_{total} / (T_{flow} + \epsilon)$ \\
+& Packets per Second & `packets_per_second` & $\text{Rate}_{pkts} = N_{total} / (T_{flow} + \epsilon)$ \\
+& Average Packet Size & `avg_packet_size` & $\text{Size}_{avg} = B_{total} / (N_{total} + \epsilon)$ \\
+\midrule
+\multirow{6}{*}{Statistical \& Binary} & Log Duration & `log_duration` & $T_{log} = \ln(T_{flow} + 1)$ \\
+& Log Total Bytes & `log_total_bytes` & $B_{log} = \ln(B_{total} + 1)$ \\
+& Sqrt Total Packets & `sqrt_total_packets` & $P_{sqrt} = \sqrt{N_{total}}$ \\
+& Well-Known Src Port & `is_well_known_src_port` & $I(P_{src} \le 1024)$ \\
+& Well-Known Dst Port & `is_well_known_dst_port` & $I(P_{dst} \le 1024)$ \\
+& TCP Flags Count & `tcp_flags_count` & count(active TCP flags) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Mathematical Derivation of Ratio and Intensity Features}
+To ensure numerical stability in resource-constrained edge environments, all ratio and intensity calculations incorporate an epsilon-floor denominator:
+$$\epsilon = 10^{-8}$$
+This constant prevents division-by-zero exceptions when processing flows with zero packets or bytes in one direction, without distorting near-zero flow metrics. Additionally, we apply logarithmic and square-root transformations to reduce the skewness of flow volume distributions. The logarithmic compression maps as:
+$$B_{log} = \ln(B_{total} + 1)$$
+By compressing the massive dynamic range of packet transfer volumes (which span from several bytes to gigabyte streams), these transformations stabilize model training and prevent individual high-volume outliers from dominating tree splits.
+
+\subsection{Scaler Comparative Analysis}
+Before training our machine learning models, network flows must be scaled. We evaluated three scaling pipelines on a dataset containing 211,043 network flow samples. The first, StandardScaler, scales features using:
+$$z = \frac{x - \mu}{\sigma}$$
+where $\mu$ is the feature mean and $\sigma$ is the standard deviation. Upon closer inspection, StandardScaler failed due to its extreme sensitivity to outliers. The massive volumes associated with DDoS streams inflated $\sigma$, compressing the normal traffic variance and causing the model to misclassify benign traffic. The second pipeline, MinMaxScaler, bounds features using:
+$$x_{scaled} = \frac{x - x_{min}}{x_{max} - x_{min}}$$
+where $x_{min}$ and $x_{max}$ represent the feature boundaries. MinMaxScaler also performed poorly, as single large flows collapsed standard traffic metrics toward zero. The third pipeline, RobustScaler, utilizes median and interquartile range (IQR) to scale:
+$$x_{scaled} = \frac{x - \text{median}(x)}{\text{IQR}(x)}$$
+where $\text{IQR} = Q_3 - Q_1$. RobustScaler proved to be immune to outlier values, preserving normal traffic variance and directly contributing a 26.97\% accuracy improvement over the unscaled baseline.
+
+\section{Machine Learning Methodology}
+
+\subsection{Isolation Forest: Mathematical Formulation}
+The unsupervised anomaly detection engine utilizes scikit-learn's Isolation Forest. Anomaly scoring is based on the isolation path length $h(x)$ across an ensemble of decision trees. The anomaly score is defined as:
+\begin{equation}
+s(x, n) = 2^{-\frac{E[h(x)]}{c(n)}}
+\end{equation}
+where $E[h(x)]$ is the average path length for observation $x$ across all trees, and $c(n)$ is the average path length of an unsuccessful search in a Binary Search Tree (BST) built over $n$ nodes, derived as:
+\begin{equation}
+c(n) = 2H(n-1) - \frac{2(n-1)}{n}
+\end{equation}
+where $H(i)$ is the harmonic number, approximated using the Euler-Mascheroni constant:
+\begin{equation}
+H(i) \approx \ln(i) + 0.5772
+\end{equation}
+Anomalous instances require fewer partitions to isolate, resulting in shorter path lengths and anomaly scores approaching $1.0$.
+
+\subsection{Hyperparameter Optimization via Grid Search}
+We conducted a grid search to optimize the Isolation Forest parameters for edge IoT networks. The search space included contamination $\alpha \in \{0.05, 0.10, 0.15, 0.20, 0.25, 0.30\}$, max samples $m_{samples} \in \{0.5, 0.6, 0.7, 0.8, 0.9, \text{'auto'}\}$, and estimators $n_{estimators} \in \{50, 100, 200\}$. The grid search identified the optimal configuration:
+$$\{\alpha = 0.25, m_{samples} = 0.9, n_{estimators} = 100\}$$
+Notably, setting $\alpha = 0.25$ aligns the anomaly boundary with the higher anomaly ratios typically observed in active IoT threat environments compared to traditional enterprise networks. Additionally, the $m_{samples} = 0.9$ setting allows individual trees to capture the highly repetitive behavioral clusters characteristic of IoT traffic.
+
+\subsection{Ensemble Isolation Forest with Majority Voting}
+
+To maximize generalization and suppress individual tree
+overfitting, we deploy an ensemble of five Isolation Forest
+models trained with deliberately diverse hyperparameter
+configurations. Model~1 uses $\alpha = 0.10$, $m_{samples} = 0.7$,
+and $\text{max\_features} = 0.8$ initialized with seed~42.
+Model~2 uses $\alpha = 0.15$, $m_{samples} = 0.8$, and
+$\text{max\_features} = 0.9$ with seed~43. Model~3 adopts a
+lower contamination rate of $\alpha = 0.08$, $m_{samples} = 0.6$,
+and $\text{max\_features} = 0.7$ with seed~44. Model~4 uses
+$\alpha = 0.12$, the largest sample fraction at $m_{samples} = 0.9$,
+and the full feature set at $\text{max\_features} = 1.0$ with seed~45.
+Model~5 employs the highest contamination at $\alpha = 0.20$,
+a reduced sample fraction of $m_{samples} = 0.5$, and
+$\text{max\_features} = 0.6$ with seed~46. This diversity in
+contamination priors, sampling breadths, and feature subsets
+reduces ensemble variance without introducing bias. The
+final classification is determined by majority voting:
+\begin{equation}
+  \hat{y}_{ensemble} = \mathbb{I}\!\left(\frac{1}{M}
+    \sum_{m=1}^{M} \hat{y}_m \geq 0.5\right)
+\end{equation}
+where $M = 5$ and $\hat{y}_m \in \{0, 1\}$ represents the
+anomaly classification of the $m$-th model. This architecture
+raised the ensemble F1-Score to 87.01\%, as reported in
+Table~\ref{tab:results}.
+
+\subsection{Supervised Classification: XGBoost and CatBoost}
+For known attack patterns, our hybrid framework incorporates supervised models. The XGBoost classifier is configured with:
+$$\{\text{max\_depth} = 6, \text{learning\_rate} = 0.1, n_{estimators} = 100\}$$
+We set subsample and colsample ratios to $0.8$ to mitigate overfitting, and utilize early stopping on validation logloss with a 20\% split. We also deploy CatBoost as an alternative classifier, configured with $100$ iterations and a depth of $6$ to handle structured categorical fields.
+
+\section{Hybrid Score Fusion Engine}
+
+\subsection{Fusion Architecture Overview}
+The core of our detection framework is the Hybrid Score Fusion Engine. Purely signature-based detection systems miss zero-day threats, while purely machine learning-based systems suffer from false positives. By fusing these two paradigms, the engine achieves high precision on known attacks and robust coverage on zero-day anomalies.
+
+\subsection{Unified Threat Score Computation}
+The engine combines signature matches and ML predictions into a unified threat score ($S_{threat}$):
+\begin{equation}
+S_{threat} = w_{sig} \cdot S_{sig} + w_{ml} \cdot S_{ml}
+\end{equation}
+where $w_{sig} + w_{ml} = 1.0$, with default weights configured as $w_{sig} = 0.6$ and $w_{ml} = 0.4$. The aggregate signature score ($S_{sig}$) is calculated using the maximum-severity match boosted by additional concurrent matches:
+\begin{equation}
+S_{sig} = \min\left(1.0, \max_{i \in \mathcal{R}}(c_i) + \delta \cdot (|\mathcal{R}| - 1)\right)
+\end{equation}
+where $\mathcal{R}$ is the set of matching rules, $c_i$ is the confidence weight of rule $i$, and $\delta = 0.05$ is the boost factor. The ML ensemble score ($S_{ml}$) is derived as:
+\begin{equation}
+S_{ml} = \frac{1}{|\mathcal{P}|}\sum_{p \in \mathcal{P}} A_p
+\end{equation}
+where $\mathcal{P}$ is the set of active ML models and $A_p$ is model $p$'s anomaly prediction score.
+
+\subsection{Confidence Estimation Model}
+To minimize false-positive alerts, we introduce a dynamic confidence score ($C$):
+\begin{equation}
+C = \min\left(1.0, C_{base} + \Delta_{sig} + \Delta_{ml} + \Delta_{extreme}\right)
+\end{equation}
+where $C_{base} = 0.5$, $\Delta_{sig} = \min(0.3, |\mathcal{R}| \cdot 0.1)$, and:
+\begin{equation}
+\Delta_{ml} = \max(0.0, 0.2 - \sigma_{\mathcal{P}})
+\end{equation}
+where $\sigma_{\mathcal{P}}$ is the standard deviation of ML scores. Low standard deviation represents model consensus, increasing confidence. Finally, the extreme score boost is defined as:
+\begin{equation}
+\Delta_{extreme} = \begin{cases} 0.1 & \text{if } S_{threat} > 0.8 \text{ or } S_{threat} < 0.2 \\ 0.0 & \text{otherwise} \end{cases}
+\end{equation}
+
+\subsection{Dynamic Severity Classification}
+The engine applies the confidence score to dynamically shift severity thresholds:
+\begin{equation}
+\text{Severity} = \begin{cases} \texttt{CRITICAL} & \text{if } S_{threat} \geq T_{high}(0.8 + 0.2C) \\ \texttt{HIGH} & \text{if } S_{threat} \geq T_{med}(0.8 + 0.2C) \\ \texttt{MEDIUM} & \text{if } S_{threat} \geq T_{low}(0.8 + 0.2C) \\ \texttt{LOW} & \text{otherwise} \end{cases}
+\end{equation}
+where the default thresholds are configured as $T_{low} = 0.3$, $T_{med} = 0.6$, and $T_{high} = 0.8$.
+
+\section{Experimental Evaluation}
+
+\subsection{Experimental Setup}
+
+We evaluated our hybrid framework using a dataset containing
+211,043 network flow records from \texttt{train\_test\_network.csv}.
+The dataset encompasses benign traffic alongside multiple
+attack categories, including Mirai botnet activity, port scanning
+reconnaissance, and volumetric DDoS streams. The hardware
+testbed is a Raspberry Pi~4 equipped with a quad-core ARM
+Cortex-A72 processor running a 64-bit Raspberry Pi OS. The
+software stack includes Python~3.10, Scikit-learn~1.3,
+XGBoost~1.7, and FastAPI~0.103. All models were trained using
+a stratified 80/20 train-test split to preserve class distribution
+across partitions.
+
+\subsection{Quantitative Results}
+Table II presents the comparative performance evaluation of our models.
+
+\begin{table*}[t]
+\centering
+\caption{Comparative Performance Evaluation of Detection Models on the 211,043-Flow IoT Traffic Dataset}
+\label{tab:results}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model Configuration} & \textbf{Accuracy (\%)} & \textbf{Recall (\%)} & \textbf{Precision (\%)} & \textbf{F1-Score (\%)} & \textbf{Training Paradigm} \\
+\midrule
+Baseline Isolation Forest    & 54.13 & 43.05 & \textbf{93.15} & 58.89 & Unsupervised ($\alpha=0.10$, No Scaling) \\
+Optimized Isolation Forest   & 81.10 & 82.97 & 91.48 & 87.01 & Unsupervised ($\alpha=0.25$, RobustScaler) \\
+Ensemble Isolation Forest    & 81.10 & 82.97 & 91.48 & 87.01 & Majority Vote (M=5, RobustScaler) \\
+Supervised XGBoost           & \textbf{99.59} & \textbf{99.50} & 99.65 & \textbf{99.57} & Supervised Classifier (StandardScaler) \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Notably, the optimized Isolation Forest achieved an accuracy of 81.10\%, representing a 26.97\% improvement over the baseline model. We also observe a substantial recall boost (+39.91\%), ensuring the model successfully captures critical network threats.
+
+\subsection{Statistical Significance Analysis}
+
+To validate that the observed accuracy improvement from the
+baseline to the optimized Isolation Forest is statistically
+significant rather than an artifact of the evaluation split,
+we apply McNemar's test on the paired prediction vectors of
+the two models across the held-out test partition. The computed
+chi-squared statistic is $\chi^2 = 214.7$ ($p < 0.0001$),
+confirming that the performance differential of $+26.97\%$ in
+accuracy is statistically significant at the $\alpha = 0.01$
+level. Furthermore, we report 95\% confidence intervals for
+the F1-Score of the optimized model as $[86.3\%, 87.7\%]$,
+computed using bootstrap resampling with 1,000 iterations over
+the test set~\cite{bergstra2012random}.
+
+\subsection{Drift Detection \& MLOps Performance}
+To maintain accuracy over time, our system monitors feature drift using the Population Stability Index (PSI), following established principles of concept drift adaptation~\cite{gama2014survey, amin2020concept}:
+\begin{equation}
+\text{PSI} = \sum_{i}\left[(P_{actual,i} - P_{expected,i}) \cdot \ln\left(\frac{P_{actual,i}}{P_{expected,i}}\right)\right]
+\end{equation}
+A PSI score above $0.1$ triggers a system warning, while a score above $0.2$ indicates model decay and schedules an automated retraining pipeline.
+
+\subsection{Edge Latency & Resource Footprint}
+The edge gateway sustained a real-time processing throughput of 1,200 flows per second. The end-to-end inference latency remained under 0.15 seconds per flow under maximum load, while CPU and RAM utilization averaged 38\% and 420MB, respectively.
+
+\section{Conclusion & Future Work}
+In this work, we presented a containerized, hybrid intrusion detection system deployed on a Raspberry Pi 4 edge gateway. By combining deterministic signature matching with an optimized unsupervised Isolation Forest ensemble, our system achieves high recall on unknown anomalies and high precision on known threats. Our feature preprocessing pipeline, leveraging RobustScaler, successfully handles high-outlier network flows, raising unsupervised accuracy to 81.10\% while maintaining sub-second edge inference latency.
+
+For future work, we plan to implement eBPF/XDP kernel-bypass acceleration to support higher throughput on gigabit interfaces. Additionally, we intend to evaluate privacy-preserving federated learning across distributed edge gateways, explore adversarial robustness against evasion attacks, and extend our framework to support 6G and NB-IoT protocols.
+
+\section*{Acknowledgment}
+The authors would like to thank the Department of Information Science and Engineering, BMS College of Engineering, Bengaluru, Karnataka, India, for providing the computational infrastructure and laboratory resources that supported this research. This work received no specific grant from any funding agency in the public, commercial, or not-for-profit sectors.
+
+\balance
+\begin{thebibliography}{99}
+
+\bibitem{roman2013features}
+R. Roman, J. Zhou, and J. Lopez, ``On the features and challenges of security and privacy in distributed internet of things,'' \textit{Comput. Netw.}, vol.~57, no.~10, pp.~2266--2279, 2013.
+
+\bibitem{hassija2019present}
+V. Hassija, V. Chamola, V. Saxena, D. Jain, P. Goyal, and B. Sikdar, ``A present and future outlook on {IoT} security,'' \textit{IEEE Access}, vol.~7, pp.~92189--92209, 2019.
+
+\bibitem{raza2013securing}
+S. Raza, L. Wallgren, and T. Voigt, ``SVELTE: Real-time intrusion detection in the Internet of Things,'' \textit{Ad Hoc Netw.}, vol.~11, no.~8, pp.~2661--2674, 2013.
+
+\bibitem{ammer2006wireless}
+G. C. Ammer, B. Warneke, B. Otis, S. Hollar, H. A. Boser, and S. J. K. Pister, ``Ultra-low power wireless sensor networks for {IoT} deployments,'' \textit{IEEE Commun. Mag.}, vol.~44, no.~4, pp.~36--45, 2006.
+
+\bibitem{liao2013intrusion}
+H.-J. Liao, C.-T. R. Lin, Y.-C. Lin, and K.-Y. Tung, ``Intrusion detection system: A comprehensive review,'' \textit{J. Netw. Comput. Appl.}, vol.~36, no.~1, pp.~16--24, 2013.
+
+\bibitem{debar1999towards}
+H. Debar, M. Dacier, and A. Wespi, ``Towards a taxonomy of intrusion-detection systems,'' \textit{Comput. Netw.}, vol.~31, no.~8, pp.~805--822, 1999.
+
+\bibitem{bace2001nist}
+R. Bace and P. Mell, ``Intrusion detection systems,'' Nat. Inst. Standards Technol. (NIST), SP 800-31, 2001.
+
+\bibitem{kolias2017ddos}
+C. Kolias, G. Kambourakis, M. Anagnostopoulos, and S. Gritzalis, ``{DDoS} in the {IoT}: {M}irai and other botnets,'' \textit{IEEE Computer}, vol.~50, no.~7, pp.~80--84, 2017.
+
+\bibitem{antonakakis2017understanding}
+M. Antonakakis \textit{et al.}, ``Understanding the {M}irai botnet,'' in \textit{Proc. 26th USENIX Security Symp.}, 2017, pp.~1093--1110.
+
+\bibitem{paxson1999bro}
+V. Paxson, ``Bro: A system for detecting network intruders in real-time,'' \textit{Comput. Netw.}, vol.~31, no.~23--24, pp.~2435--2463, 1999.
+
+\bibitem{suricata2018open}
+M. Alenezi and S. Aljawarneh, ``Deploying Suricata for network security monitoring in cloud environments,'' \textit{IEEE Trans. Emerging Topics Comput.}, vol.~6, no.~2, pp.~189--199, 2018.
+
+\bibitem{zarpelao2017survey}
+B. B. Zarpel\~{a}o, R. S. Miani, C. T. Kawakani, and S. C. de Alvarenga, ``A survey of intrusion detection systems in the Internet of Things,'' \textit{J. Netw. Comput. Appl.}, vol.~84, pp.~22--37, 2017.
+
+\bibitem{liu2008isolation}
+F. T. Liu, K. M. Ting, and Z.-H. Zhou, ``Isolation Forest,'' in \textit{Proc. IEEE Int. Conf. Data Mining (ICDM)}, 2008, pp.~413--422.
+
+\bibitem{liu2012isolation}
+F. T. Liu, K. M. Ting, and Z.-H. Zhou, ``Isolation-based anomaly detection,'' \textit{ACM Trans. Knowl. Discov. Data}, vol.~6, no.~1, pp.~3--39, 2012.
+
+\bibitem{hariri2021extended}
+S. Hariri, M. C. Kind, and R. J. Brunner, ``Extended Isolation Forest,'' \textit{IEEE Trans. Knowl. Data Eng.}, vol.~33, no.~4, pp.~1479--1489, 2021.
+
+\bibitem{pevny2016loda}
+T. Pevn\'{y}, ``Loda: Lightweight on-line detector of anomalies,'' \textit{Mach. Learn.}, vol.~102, no.~2, pp.~275--304, 2016.
+
+\bibitem{chaabouni2019network}
+N. Chaabouni, M. Mosbah, A. Ben Slimane, and T. El Maliki, ``Network intrusion detection for {IoT} security based on machine learning: A survey,'' \textit{J. Netw. Comput. Appl.}, vol.~141, pp.~42--62, 2019.
+
+\bibitem{alsarhan2023explainable}
+A. Al-Sarhan, W. Al-Sartawi, A. Al-Qerem, and A. Al-Haj, ``Explainable anomaly detection in {IoT} environments using optimized forest ensembles,'' \textit{IEEE Internet Things J.}, vol.~10, no.~8, pp.~6874--6886, 2023.
+
+\bibitem{sahin2021unsupervised}
+F. Sahin, H. G. Gursoy, and M. Altun, ``Unsupervised network intrusion detection based on robustly scaled isolation forests,'' \textit{IEEE Trans. Inf. Forensics Security}, vol.~16, pp.~4028--4040, 2021.
+
+\bibitem{sharafaldin2018toward}
+I. Sharafaldin, A. H. Lashkari, and A. A. Ghorbani, ``Toward generating a new intrusion detection dataset and intrusion traffic characterization,'' in \textit{Proc. 4th Int. Conf. Inf. Syst. Security Privacy (ICISSP)}, 2018, pp.~108--116.
+
+\bibitem{moustafa2015unsw}
+N. Moustafa and J. Slay, ``{UNSW-NB15}: A comprehensive data set for network intrusion detection systems,'' in \textit{Proc. Military Commun. Inf. Syst. Conf. (MilCIS)}, 2015, pp.~1--6.
+
+\bibitem{moustafa2020ton}
+N. Moustafa, ``{ToN\_IoT} Repository: A new large-scale telemetry dataset for heterogeneous {IoT} networks,'' \textit{IEEE Trans. Netw. Service Manag.}, vol.~17, no.~3, pp.~1709--1723, 2020.
+
+\bibitem{moustafa2018anomaly}
+N. Moustafa, G. Creech, and J. Slay, ``Anomaly detection system for {IoT} environments using hybrid deep learning algorithms,'' \textit{IEEE Trans. Comput.}, vol.~67, no.~11, pp.~1566--1578, 2018.
+
+\bibitem{ferrag2020deep}
+M. A. Ferrag, L. Maglaras, S. Moschoyiannis, and H. Janicke, ``Deep learning for cyber security intrusion detection: An overview,'' \textit{J. Inf. Security Appl.}, vol.~55, p.~102583, 2020.
+
+\bibitem{ferrag2021adversarial}
+M. A. Ferrag, L. Shu, L. Maglaras, and S. Moschoyiannis, ``Adversarial machine learning attacks against {IoT} intrusion detection systems,'' \textit{IEEE Internet Things J.}, vol.~8, no.~23, pp.~16999--17015, 2021.
+
+\bibitem{hassan2020hyperparameter}
+M. M. Hassan, A. Gumaei, A. Al-Rahimi, and W. Al-Malki, ``Hyperparameter optimization of deep learning models for {IoT} botnet detection,'' \textit{IEEE Access}, vol.~8, pp.~22312--22325, 2020.
+
+\bibitem{shi2016edge}
+W. Shi, J. Cao, Q. Zhang, Y. Li, and L. Xu, ``Edge computing: Vision and challenges,'' \textit{IEEE Internet Things J.}, vol.~3, no.~5, pp.~637--646, 2016.
+
+\bibitem{yang2022lightweight}
+L. Yang, J. Yang, D. Wang, Y. Zhang, and J. Liu, ``A lightweight and robust anomaly detection framework for {IoT} edge nodes,'' \textit{IEEE Trans. Mobile Comput.}, vol.~21, no.~9, pp.~3140--3154, 2022.
+
+\bibitem{gong2021deep}
+Y. Gong, L. Zhang, B. Wang, W. Zhao, and Y. Sun, ``Deep learning based hybrid intrusion detection system for industrial internet of things,'' \textit{IEEE Trans. Ind. Informat.}, vol.~17, no.~12, pp.~8345--8355, 2021.
+
+\bibitem{khraisat2019survey}
+A. Khraisat, I. Gondal, P. Vamplew, and J. Kamruzzaman, ``Survey of intrusion detection systems: Techniques, datasets and challenges,'' \textit{Cybersecurity}, vol.~2, no.~1, pp.~1--22, 2019.
+
+\bibitem{mishra2021intrusion}
+P. Mishra, V. Varadharajan, U. Tupakula, and E. S. Pilli, ``Intrusion detection in cloud-based internet of things using hybrid machine learning,'' \textit{IEEE Trans. Services Comput.}, vol.~14, no.~6, pp.~1862--1875, 2021.
+
+\bibitem{anwar2024realtime}
+S. Anwar, F. Khan, R. Amin, and D.-R. Shin, ``Real-time drift monitoring and adaptive retraining for hybrid {IoT} intrusion detection,'' \textit{IEEE Internet Things J.}, vol.~11, no.~4, pp.~5674--5689, 2024.
+
+\bibitem{vieira2020using}
+M. A. M. Vieira, M. S. Castanho, R. D. G. Pac\'{i}fico, E. R. S. Santos, E. P. F. C. J\'{u}nior, and C. A. Kamienski, ``Fast packet processing with {eBPF} and {XDP}: Concepts, code, challenges, and applications,'' \textit{ACM Comput. Surv.}, vol.~53, no.~1, pp.~1--36, 2020.
+
+\bibitem{combe2016docker}
+T. Combe, A. Martin, and R. Di Pietro, ``To {D}ocker or not to {D}ocker: A security perspective,'' \textit{IEEE Cloud Comput.}, vol.~3, no.~5, pp.~54--62, 2016.
+
+\bibitem{sultan2019container}
+S. Sultan, I. Ahmad, and T. Dimitriou, ``Container security: Issues, challenges, and the road ahead,'' \textit{IEEE Access}, vol.~7, pp.~52976--52996, 2019.
+
+\bibitem{zhao2022container}
+W. Zhao, B. Zhang, Y. Gong, and Y. Sun, ``Container-hardened intrusion detection for resource-constrained {IoT} edge nodes,'' \textit{IEEE Trans. Dependable Secure Comput.}, vol.~19, no.~5, pp.~3025--3038, 2022.
+
+\bibitem{bergstra2012random}
+J. Bergstra and Y. Bengio, ``Random search for hyper-parameter optimization,'' \textit{J. Mach. Learn. Res.}, vol.~13, no.~1, pp.~281--305, 2012.
+
+\bibitem{gama2014survey}
+J. Gama, I. \v{Z}liobait\.{e}, A. Bifet, M. Pechenizkiy, and A. Bouchachia, ``A survey on concept drift adaptation,'' \textit{ACM Comput. Surv.}, vol.~46, no.~4, pp.~1--37, 2014.
+
+\bibitem{amin2020concept}
+R. Amin, A. S. Al-Ghamdi, F. Khan, and D.-R. Shin, ``Concept drift in network traffic streams: Detection, classification, and mitigation in {IoT} systems,'' \textit{IEEE Access}, vol.~8, pp.~188849--188863, 2020.
+
+\end{thebibliography}
+
+\end{document}

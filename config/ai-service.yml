@@ -1,0 +1,120 @@
+# AI Inference Service Configuration
+# Optimized configuration for Docker deployment
+
+ai_inference:
+  # Machine Learning Models Configuration (with optimized Isolation Forest)
+  models:
+    # Optimized Isolation Forest for unsupervised anomaly detection
+    isolation_forest:
+      enabled: true
+      contamination: 0.25     # Optimized: Higher contamination for better accuracy
+      n_estimators: 100       # Optimized: 100 estimators
+      max_samples: 0.9        # Optimized: 90% sampling
+      random_state: 42
+    
+    # XGBoost for supervised classification
+    xgboost:
+      enabled: false
+      max_depth: 6
+      learning_rate: 0.1
+      n_estimators: 100
+      objective: "binary:logistic"
+      eval_metric: "auc"
+    
+    # CatBoost (disabled for initial deployment)
+    catboost:
+      enabled: false
+    
+    # Sequence models (disabled for initial deployment)
+    sequence_models:
+      enabled: false
+  
+  # Feature Engineering Configuration
+  feature_engineering:
+    time_window_minutes: 5
+    aggregation_functions:
+      - mean
+      - std
+      - min
+      - max
+      - count
+    scaling_method: "robust"  # Optimized: RobustScaler performs best
+    feature_importance_threshold: 0.01
+
+edge_gateway:
+  packet_capture:
+    interface: "eth0"
+    buffer_size_mb: 64
+  protocol_decoders:
+    zeek_enabled: false
+    suricata_enabled: false
+  forwarding:
+    upstream_endpoints: ["http://localhost:8000/api/v1/ingest"]
+    batch_size: 100
+    flush_interval_ms: 1000
+    retry_attempts: 3
+  
+  # Hybrid Decision Engine Configuration
+  decision_engine:
+    signature_weight: 0.6
+    ml_weight: 0.4
+    threshold_low: 0.3
+    threshold_medium: 0.5
+    threshold_high: 0.7
+    threshold_critical: 0.9
+  
+  # API Configuration
+  api:
+    host: "0.0.0.0"
+    rest_port: 8000
+    grpc_port: 50051
+    workers: 4
+    max_batch_size: 100
+    timeout_seconds: 30
+
+# Storage Configuration
+storage:
+  elasticsearch:
+    hosts:
+      - "http://elasticsearch:9200"
+    index_prefix: "iot-ids"
+    shard_count: 1
+    replica_count: 0
+    
+    # Index Lifecycle Management
+    ilm_policy:
+      hot_phase_days: 7
+      warm_phase_days: 30
+      cold_phase_days: 90
+      delete_phase_days: 365
+
+# MLOps Configuration
+mlops:
+  model_registry:
+    backend: "local"
+    path: "/app/models"
+  
+  drift_monitoring:
+    enabled: true
+    check_interval_hours: 24
+    drift_threshold: 0.1
+    performance_threshold: 0.8
+
+# Security Configuration (simplified for Docker)
+security:
+  tls:
+    enabled: false  # Disabled for local Docker deployment
+  authentication:
+    enabled: false  # Disabled for local Docker deployment
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  output: "stdout"
+  file_path: "/app/logs/ai-service.log"
+  max_file_size_mb: 100
+  backup_count: 5

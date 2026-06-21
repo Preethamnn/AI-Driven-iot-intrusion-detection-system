@@ -1,0 +1,261 @@
+================================================================
+  AI-DRIVEN IoT IDS - RASPBERRY PI 4 SETUP GUIDE
+  Hardware: Raspberry Pi 4 (4GB RAM) + Sparsh X-Series Camera
+================================================================
+
+----------------------------------------------------------------
+SECTION 1: PHYSICAL CONNECTION DIAGRAM
+----------------------------------------------------------------
+
+  Sparsh IP Camera (default IP: 192.168.1.64)
+          |
+          | Ethernet cable
+          |
+  [Raspberry Pi 4]
+  - eth0 port  <-- Camera connected here (direct or via switch)
+  - wlan0      <-- Connected to same WiFi as your PC
+          |
+          | WiFi (same network)
+          |
+  [Your PC - Windows]
+  - Runs Docker Compose (ELK Stack)
+  - Kibana at http://localhost:5601
+  - Elasticsearch at http://localhost:9200
+  - AI Service at http://localhost:8000
+
+SIMPLE WIRING (No switch needed):
+  Camera --> Raspberry Pi eth0 (direct ethernet cable)
+  Raspberry Pi WiFi --> Same WiFi network as your PC
+
+WITH SWITCH (for multiple cameras):
+  Camera 1 --> Network Switch --> Raspberry Pi eth0
+  Camera 2 --> Network Switch
+  Your PC  --> Network Switch (optional)
+
+----------------------------------------------------------------
+SECTION 2: RASPBERRY PI 4 - OS INSTALLATION
+----------------------------------------------------------------
+
+Step 1: Download Raspberry Pi Imager
+  URL: https://www.raspberrypi.com/software/
+
+Step 2: Flash the SD Card
+  - OS: Raspberry Pi OS Lite (64-bit)
+  - Storage: 32GB+ microSD card
+  - Click gear icon (settings) before writing:
+    * Hostname: iot-ids-pi
+    * Enable SSH: Yes
+    * Username: pi
+    * Password: iotids2024
+    * WiFi SSID: [your WiFi name]
+    * WiFi Password: [your WiFi password]
+    * Locale: Asia/Kolkata
+
+Step 3: Insert SD card into Pi and power on
+  Wait 2 minutes for first boot.
+
+Step 4: Find Pi's IP address (on your PC)
+  arp -a
+  OR: ping iot-ids-pi.local
+
+Step 5: SSH into the Pi from your PC
+  ssh pi@192.168.x.x
+
+----------------------------------------------------------------
+SECTION 3: RASPBERRY PI 4 - SOFTWARE INSTALLATION
+----------------------------------------------------------------
+
+Run these commands on the Raspberry Pi via SSH:
+
+  # Update system
+  sudo apt-get update && sudo apt-get upgrade -y
+
+  # Install Python and tools
+  sudo apt-get install -y python3 python3-pip python3-venv git
+
+  # Install Scapy dependencies
+  sudo apt-get install -y libpcap-dev tcpdump
+
+  # Install Docker
+  curl -fsSL https://get.docker.com -o get-docker.sh
+  sudo sh get-docker.sh
+  sudo usermod -aG docker pi
+
+  # Re-login for docker group
+  exit
+  ssh pi@192.168.x.x
+
+  # Copy project from your PC (run on your PC)
+  scp -r C:\Users\Dell\New-IoT-Project pi@192.168.x.x:/home/pi/
+
+  # On Pi: install Python dependencies
+  cd /home/pi/New-IoT-Project
+  pip3 install -r requirements.txt
+
+----------------------------------------------------------------
+SECTION 4: NETWORK CONFIGURATION ON RASPBERRY PI
+----------------------------------------------------------------
+
+  # Set static IP on eth0 for camera network
+  sudo nano /etc/dhcpcd.conf
+
+  # Add at the bottom:
+  interface eth0
+  static ip_address=192.168.1.100/24
+  static routers=
+  static domain_name_servers=8.8.8.8
+
+  # Save (Ctrl+X, Y, Enter) and restart
+  sudo systemctl restart dhcpcd
+
+  # Verify
+  ip addr show eth0
+  # Should show 192.168.1.100
+
+  # Test camera is reachable
+  ping 192.168.1.64
+
+----------------------------------------------------------------
+SECTION 5: EDGE GATEWAY CONFIGURATION
+----------------------------------------------------------------
+
+  # Edit config on Pi
+  nano /home/pi/New-IoT-Project/config/edge-gateway.yml
+
+  # Set these values:
+  edge_gateway:
+    packet_capture:
+      interface: eth0
+      buffer_size_mb: 64
+      capture_filter: ""
+    forwarding:
+      upstream_endpoints:
+        - "http://YOUR_PC_IP:8000/api/v1/ingest"
+      batch_size: 100
+      flush_interval_ms: 5000
+      retry_attempts: 3
+
+  # Find YOUR_PC_IP: run ipconfig on Windows
+  # Look for WiFi adapter IPv4 address (e.g., 10.80.47.82)
+
+----------------------------------------------------------------
+SECTION 6: RUNNING THE IDS
+----------------------------------------------------------------
+
+ON YOUR PC (Windows) - Start ELK:
+  docker-compose -f docker-compose.elk.yml up -d
+
+ON RASPBERRY PI - Start capture:
+  sudo python3 edge_gateway_main.py \
+    --interface eth0 \
+    --upstream http://YOUR_PC_IP:8000/api/v1/ingest \
+    --log-level INFO
+
+ON YOUR PC - Open Kibana:
+  http://localhost:5601
+  Go to Discover -> "IoT IDS - Alerts" data view
+  Watch real-time alerts from camera traffic
+
+----------------------------------------------------------------
+SECTION 7: VERIFY CAMERA TRAFFIC IS CAPTURED
+----------------------------------------------------------------
+
+  # Test on Raspberry Pi
+  sudo python3 -c "
+  from scapy.all import sniff, IP
+  print('Capturing on eth0...')
+  packets = sniff(iface='eth0', count=10, timeout=10)
+  for p in packets:
+      if IP in p:
+          print(f'  {p[IP].src} -> {p[IP].dst}')
+  print(f'Total: {len(packets)} packets')
+  "
+
+  # If you see 192.168.1.64 in the output, camera traffic is captured.
+
+----------------------------------------------------------------
+SECTION 8: AUTOSTART ON BOOT (OPTIONAL)
+----------------------------------------------------------------
+
+  sudo nano /etc/systemd/system/iot-ids.service
+
+  [Unit]
+  Description=IoT IDS Edge Gateway
+  After=network.target
+
+  [Service]
+  Type=simple
+  User=root
+  WorkingDirectory=/home/pi/New-IoT-Project
+  ExecStart=/usr/bin/python3 edge_gateway_main.py --interface eth0 --upstream http://YOUR_PC_IP:8000/api/v1/ingest
+  Restart=always
+  RestartSec=10
+
+  [Install]
+  WantedBy=multi-user.target
+
+  # Enable
+  sudo systemctl enable iot-ids
+  sudo systemctl start iot-ids
+  sudo systemctl status iot-ids
+
+----------------------------------------------------------------
+SECTION 9: TROUBLESHOOTING
+----------------------------------------------------------------
+
+Cannot SSH into Pi:
+  - Check Pi IP: arp -a on your PC
+  - Ensure Pi is on same WiFi
+
+Scapy "No such device eth0":
+  - Run: ip link show
+  - Use correct interface name
+
+Permission denied for capture:
+  - Run with sudo
+  - Or: sudo setcap cap_net_raw+eip /usr/bin/python3
+
+Camera not reachable (ping fails):
+  - Check camera label for default IP
+  - Common Sparsh defaults: 192.168.1.64 or 192.168.1.100
+  - Ensure Pi eth0 is on same subnet (192.168.1.x)
+
+Packets not forwarded to PC:
+  - Check PC firewall allows port 8000
+  - Verify AI service: docker ps
+  - Check upstream URL matches PC's WiFi IP
+
+----------------------------------------------------------------
+SECTION 10: HARDWARE SHOPPING LIST
+----------------------------------------------------------------
+
+  Raspberry Pi 4 Model B (4GB RAM)    ~Rs. 5,000-6,000
+  32GB microSD card (Class 10)        ~Rs. 500
+  USB-C Power Supply (5V 3A)          ~Rs. 500
+  Ethernet cable (Cat5e, 1m)          ~Rs. 200
+  Small 5-port switch (optional)      ~Rs. 800
+  ----------------------------------------
+  Total:                              ~Rs. 7,000-8,000
+
+----------------------------------------------------------------
+SECTION 11: COMPLETE DATA FLOW SUMMARY
+----------------------------------------------------------------
+
+  [Sparsh Camera 192.168.1.64]
+       | ethernet
+  [Raspberry Pi 4]
+       | eth0: 192.168.1.100 (camera network)
+       | wlan0: 10.80.x.x (WiFi - same as PC)
+       | Scapy captures all packets on eth0
+       | Forwards analyzed data via WiFi
+       | HTTP POST to PC port 8000
+  [Your PC - Windows]
+       | AI Service (port 8000) - receives traffic
+       | Elasticsearch (port 9200) - stores alerts
+       | Kibana (port 5601) - shows dashboards
+       | Docker Compose manages all services
+
+================================================================
+  Project: AI-Driven IoT Intrusion Detection System
+  Generated: May 2026
+================================================================

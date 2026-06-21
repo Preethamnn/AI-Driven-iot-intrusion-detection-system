@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # AI Inference Service Only (for testing optimized model)
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai-service
+    container_name: ids-ai-service-minimal
+    ports:
+      - "8000:8000"
+      - "50051:50051"
+    volumes:
+      - ./models:/app/models:ro
+      - ./config/ai-service.yml:/app/config/config.yml:ro
+      - ai-logs:/app/logs
+    environment:
+      - CONFIG_PATH=/app/config/config.yml
+      - MODEL_PATH=/app/models
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  ai-logs:
+    driver: local
+
+networks:
+  default:
+    driver: bridge

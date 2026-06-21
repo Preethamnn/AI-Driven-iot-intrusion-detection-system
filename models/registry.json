@@ -1,0 +1,37 @@
+{
+  "models": {
+    "isolation_forest_v1": {
+      "name": "isolation_forest_v1",
+      "type": "unsupervised",
+      "version": "1.0.0",
+      "loaded_at": "2026-05-22T10:00:00.000Z",
+      "config": {
+        "name": "isolation_forest_v1",
+        "type": "unsupervised",
+        "model_version": "1.0.0",
+        "contamination": 0.05,
+        "model_path": "models/artifacts/isolation_forest_v1.pkl",
+        "n_estimators": 100,
+        "max_samples": "auto"
+      }
+    }
+  },
+  "versions": {
+    "isolation_forest_v1": {
+      "1.0.0": {
+        "name": "isolation_forest_v1",
+        "version": "1.0.0",
+        "config": {
+          "name": "isolation_forest_v1",
+          "type": "unsupervised",
+          "model_version": "1.0.0",
+          "contamination": 0.05,
+          "model_path": "models/artifacts/isolation_forest_v1.pkl",
+          "n_estimators": 100,
+          "max_samples": "auto"
+        }
+      }
+    }
+  },
+  "last_updated": "2026-05-22T10:00:00.000Z"
+}

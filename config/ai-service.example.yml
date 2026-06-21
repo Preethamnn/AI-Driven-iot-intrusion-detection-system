@@ -1,0 +1,138 @@
+# AI Inference Service Configuration Example
+# Copy this file to ai-service.yml and customize for your deployment
+
+ai_inference:
+  # Machine Learning Models Configuration
+  models:
+    # Isolation Forest for unsupervised anomaly detection
+    isolation_forest:
+      enabled: true
+      contamination: 0.1  # Expected proportion of outliers (0.0-0.5)
+      n_estimators: 100   # Number of trees in the forest
+      max_samples: 256    # Number of samples to draw for each tree
+      random_state: 42
+    
+    # XGBoost for supervised classification
+    xgboost:
+      enabled: true
+      max_depth: 6           # Maximum tree depth
+      learning_rate: 0.1     # Step size shrinkage (0.01-1.0)
+      n_estimators: 100      # Number of boosting rounds
+      objective: "binary:logistic"
+      eval_metric: "auc"
+    
+    # CatBoost for supervised classification (alternative to XGBoost)
+    catboost:
+      enabled: false
+      iterations: 100
+      learning_rate: 0.1
+      depth: 6
+      loss_function: "Logloss"
+    
+    # Sequence models for temporal pattern analysis
+    sequence_models:
+      enabled: false
+      model_type: "gru"  # Options: gru, lstm, transformer
+      hidden_size: 128
+      num_layers: 2
+      sequence_length: 10
+  
+  # Feature Engineering Configuration
+  feature_engineering:
+    time_window_minutes: 5  # Time window for flow aggregation
+    aggregation_functions:
+      - mean
+      - std
+      - min
+      - max
+      - count
+      - sum
+    
+    # Feature scaling
+    scaling_method: "standard"  # Options: standard, minmax, robust
+    
+    # Feature selection
+    feature_importance_threshold: 0.01
+  
+  # Hybrid Decision Engine Configuration
+  decision_engine:
+    signature_weight: 0.6    # Weight for signature-based detection (0-1)
+    ml_weight: 0.4           # Weight for ML-based detection (0-1)
+    threshold_low: 0.3       # Low severity threshold
+    threshold_medium: 0.5    # Medium severity threshold
+    threshold_high: 0.7      # High severity threshold
+    threshold_critical: 0.9  # Critical severity threshold
+  
+  # API Configuration
+  api:
+    host: "0.0.0.0"
+    rest_port: 8000
+    grpc_port: 50051
+    workers: 4
+    max_batch_size: 100
+    timeout_seconds: 30
+
+# Storage Configuration
+storage:
+  elasticsearch:
+    hosts:
+      - "http://localhost:9200"
+    index_prefix: "iot-ids"
+    shard_count: 3
+    replica_count: 1
+    
+    # Index Lifecycle Management
+    ilm_policy:
+      hot_phase_days: 7
+      warm_phase_days: 30
+      cold_phase_days: 90
+      delete_phase_days: 365
+  
+  # Data Retention Policies
+  retention:
+    raw_data_days: 7
+    aggregated_data_days: 30
+    alert_data_days: 90
+    model_metrics_days: 180
+
+# MLOps Configuration
+mlops:
+  model_registry:
+    backend: "local"  # Options: local, mlflow, s3
+    path: "/app/models"
+  
+  drift_monitoring:
+    enabled: true
+    check_interval_hours: 24
+    drift_threshold: 0.1
+    performance_threshold: 0.8
+  
+  deployment:
+    strategy: "canary"  # Options: canary, blue_green, rolling
+    canary_percentage: 10
+    rollback_on_error: true
+
+# Security Configuration
+security:
+  tls:
+    enabled: true
+    cert_path: "/app/certs/server.crt"
+    key_path: "/app/certs/server.key"
+    ca_path: "/app/certs/ca.crt"
+  
+  authentication:
+    enabled: true
+    api_key_header: "X-API-Key"
+  
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 1000
+
+# Logging Configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "json"
+  output: "stdout"
+  file_path: "/app/logs/ai-service.log"
+  max_file_size_mb: 100
+  backup_count: 5

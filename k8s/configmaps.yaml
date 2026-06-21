@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-service-config
+  namespace: iot-ids
+data:
+  elasticsearch_host: "http://elasticsearch:9200"
+  config.yml: |
+    ai_inference:
+      models:
+        isolation_forest:
+          enabled: true
+          contamination: 0.1
+          n_estimators: 100
+        xgboost:
+          enabled: true
+          max_depth: 6
+          learning_rate: 0.1
+          n_estimators: 100
+      feature_engineering:
+        time_window_minutes: 5
+        aggregation_functions:
+          - mean
+          - std
+          - min
+          - max
+          - count
+      decision_engine:
+        signature_weight: 0.6
+        ml_weight: 0.4
+        threshold_low: 0.3
+        threshold_high: 0.7
+    storage:
+      elasticsearch:
+        hosts:
+          - http://elasticsearch:9200
+        index_prefix: iot-ids
+        shard_count: 3
+        replica_count: 1
+      retention:
+        raw_data_days: 7
+        aggregated_data_days: 30
+        alert_data_days: 90
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-gateway-config
+  namespace: iot-ids
+data:
+  ai_service_url: "http://ai-service:8000"
+  config.yml: |
+    edge_gateway:
+      packet_capture:
+        interface: eth0
+        buffer_size_mb: 64
+        capture_filter: ""
+      protocol_decoders:
+        zeek_enabled: true
+        suricata_enabled: true
+        custom_rules_path: /app/config/rules
+      forwarding:
+        upstream_endpoints:
+          - http://ai-service:8000
+        batch_size: 100
+        flush_interval_ms: 1000
+        retry_attempts: 3

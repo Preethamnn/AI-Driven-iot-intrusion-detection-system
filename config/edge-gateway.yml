@@ -1,0 +1,127 @@
+# Edge Gateway Configuration
+# Optimized configuration for Docker deployment
+
+edge_gateway:
+  # Packet Capture Configuration
+  packet_capture:
+    interface: "eth0"
+    buffer_size_mb: 64
+    capture_filter: ""
+    promiscuous_mode: true
+    snaplen: 65535
+    use_ebpf: false
+    ring_buffer_size: 4096
+  
+  # Protocol Decoder Configuration
+  protocol_decoders:
+    zeek_enabled: false      # Disabled for Docker deployment
+    suricata_enabled: false  # Disabled for Docker deployment
+    custom_rules_path: "/app/config/rules"
+    extract_dns: true
+    extract_tls: true
+    extract_http: true
+    extract_mqtt: true
+  
+  # Feature Extraction Configuration
+  feature_extraction:
+    flow_timeout_seconds: 300
+    flow_max_duration_seconds: 3600
+    extract_timing_features: true
+    extract_statistical_features: true
+    extract_protocol_features: true
+    extract_behavioral_features: true
+    short_window_seconds: 60
+    medium_window_seconds: 300
+    long_window_seconds: 3600
+  
+  # Device Profiling Configuration
+  device_profiling:
+    enabled: true
+    oui_database_path: "/app/data/oui.txt"
+    profile_learning_period_hours: 168
+    profile_update_interval_hours: 24
+    track_periodicity: true
+    track_bandwidth: true
+    track_protocols: true
+    track_destinations: true
+  
+  # Data Forwarding Configuration
+  forwarding:
+    upstream_endpoints:
+      - "http://localhost:8000"
+    batch_size: 100
+    flush_interval_ms: 1000
+    max_queue_size: 10000
+    retry_attempts: 3
+    retry_backoff_ms: 1000
+    retry_max_backoff_ms: 30000
+    compression_enabled: true
+    compression_algorithm: "gzip"
+  
+  # Local Buffering Configuration
+  local_buffering:
+    enabled: true
+    buffer_path: "/app/data/buffer"
+    max_buffer_size_mb: 1024
+    buffer_retention_hours: 24
+    persist_to_disk: true
+    sync_interval_seconds: 60
+
+# Transport Security Configuration (simplified for Docker)
+transport:
+  mtls:
+    enabled: false  # Disabled for local Docker deployment
+  connection_pool_size: 10
+  connection_timeout_seconds: 30
+  keepalive_interval_seconds: 60
+
+# Observability Configuration
+observability:
+  metrics:
+    enabled: true
+    prometheus_port: 9090
+    collection_interval_seconds: 60
+  
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file_path: "/app/logs/edge-gateway.log"
+    max_file_size_mb: 100
+    backup_count: 5
+  
+  elasticsearch:
+    enabled: true
+    hosts:
+      - "http://localhost:9200"
+    index_prefix: "edge-gateway"
+    bulk_size: 500
+    flush_interval_seconds: 10
+
+# Resource Management Configuration
+resources:
+  max_memory_mb: 512
+  flow_cache_size: 10000
+  max_cpu_percent: 80
+  worker_threads: 4
+  max_disk_usage_percent: 80
+  cleanup_threshold_percent: 90
+
+# Network Security Configuration
+network_security:
+  vlan_id: 100
+  vlan_priority: 0
+  egress_policy: "allow_all"  # Simplified for Docker
+  rate_limit_enabled: true
+  max_packets_per_second: 10000
+
+storage:
+  elasticsearch:
+    hosts: ["http://localhost:9200"]
+    index_prefix: "iot-ids"
+    shard_count: 1
+    replica_count: 1
+  retention:
+    raw_data_days: 7
+    aggregated_data_days: 30
+    alert_data_days: 90

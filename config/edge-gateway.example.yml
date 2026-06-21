@@ -1,0 +1,162 @@
+# Edge Gateway Configuration Example
+# Copy this file to edge-gateway.yml and customize for your deployment
+
+edge_gateway:
+  # Packet Capture Configuration
+  packet_capture:
+    interface: "eth0"           # Network interface to monitor
+    buffer_size_mb: 64          # Packet capture buffer size (1-1024)
+    capture_filter: ""          # BPF filter (empty = capture all)
+    promiscuous_mode: true      # Enable promiscuous mode
+    snaplen: 65535              # Maximum bytes to capture per packet
+    
+    # Performance tuning
+    use_ebpf: false             # Use eBPF/XDP for high-performance capture
+    ring_buffer_size: 4096      # Ring buffer size for packet capture
+  
+  # Protocol Decoder Configuration
+  protocol_decoders:
+    zeek_enabled: true
+    zeek_scripts_path: "/opt/zeek/share/zeek/site"
+    
+    suricata_enabled: true
+    suricata_config_path: "/etc/suricata/suricata.yaml"
+    
+    custom_rules_path: "/app/config/rules"
+    
+    # Decoder options
+    extract_dns: true
+    extract_tls: true
+    extract_http: true
+    extract_mqtt: true
+  
+  # Feature Extraction Configuration
+  feature_extraction:
+    flow_timeout_seconds: 300   # Flow idle timeout
+    flow_max_duration_seconds: 3600
+    
+    # Features to extract
+    extract_timing_features: true
+    extract_statistical_features: true
+    extract_protocol_features: true
+    extract_behavioral_features: true
+    
+    # Aggregation windows
+    short_window_seconds: 60
+    medium_window_seconds: 300
+    long_window_seconds: 3600
+  
+  # Device Profiling Configuration
+  device_profiling:
+    enabled: true
+    oui_database_path: "/app/data/oui.txt"
+    profile_learning_period_hours: 168  # 7 days
+    profile_update_interval_hours: 24
+    
+    # Behavioral baseline
+    track_periodicity: true
+    track_bandwidth: true
+    track_protocols: true
+    track_destinations: true
+  
+  # Data Forwarding Configuration
+  forwarding:
+    # Upstream endpoints
+    upstream_endpoints:
+      - "http://ai-service:8000"
+    
+    # Batching configuration
+    batch_size: 100             # Number of flows per batch
+    flush_interval_ms: 1000     # Maximum time before flushing batch
+    max_queue_size: 10000       # Maximum queued flows
+    
+    # Retry configuration
+    retry_attempts: 3
+    retry_backoff_ms: 1000
+    retry_max_backoff_ms: 30000
+    
+    # Compression
+    compression_enabled: true
+    compression_algorithm: "gzip"  # Options: gzip, lz4, zstd
+  
+  # Local Buffering Configuration
+  local_buffering:
+    enabled: true
+    buffer_path: "/app/data/buffer"
+    max_buffer_size_mb: 1024
+    buffer_retention_hours: 24
+    
+    # Disk persistence
+    persist_to_disk: true
+    sync_interval_seconds: 60
+
+# Transport Security Configuration
+transport:
+  mtls:
+    enabled: true
+    client_cert_path: "/app/certs/client.crt"
+    client_key_path: "/app/certs/client.key"
+    ca_cert_path: "/app/certs/ca.crt"
+    verify_server: true
+  
+  # Connection pooling
+  connection_pool_size: 10
+  connection_timeout_seconds: 30
+  keepalive_interval_seconds: 60
+
+# Observability Configuration
+observability:
+  # Metrics
+  metrics:
+    enabled: true
+    prometheus_port: 9090
+    collection_interval_seconds: 60
+  
+  # Logging
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file_path: "/app/logs/edge-gateway.log"
+    max_file_size_mb: 100
+    backup_count: 5
+  
+  # Elasticsearch forwarding
+  elasticsearch:
+    enabled: true
+    hosts:
+      - "http://elasticsearch:9200"
+    index_prefix: "edge-gateway"
+    bulk_size: 500
+    flush_interval_seconds: 10
+
+# Resource Management Configuration
+resources:
+  # Memory limits
+  max_memory_mb: 512
+  flow_cache_size: 10000
+  
+  # CPU limits
+  max_cpu_percent: 80
+  worker_threads: 4
+  
+  # Disk limits
+  max_disk_usage_percent: 80
+  cleanup_threshold_percent: 90
+
+# Network Security Configuration
+network_security:
+  # VLAN configuration
+  vlan_id: 100
+  vlan_priority: 0
+  
+  # Firewall rules
+  egress_policy: "deny_by_default"
+  allowed_destinations:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+  
+  # Rate limiting
+  rate_limit_enabled: true
+  max_packets_per_second: 10000

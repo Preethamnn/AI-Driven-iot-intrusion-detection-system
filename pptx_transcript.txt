@@ -1,0 +1,421 @@
+﻿=== SLIDE 1 ===
+A Hybrid Deterministic-Probabilistic
+Security Framework for Edge IoT Networks
+Using Optimized Isolation Forests and Signature Fusion
+Pretham N N  | M.Tech, Computer Network Engineering
+Department of Information Science and Engineering
+BMS College of Engineering, Bengaluru
+Guide: Dr. H S Guruprasad, Professor, Dept. of ISE, BMSCE
+Academic Year: 2025ΓÇô2026
+
+=== SLIDE 2 ===
+Agenda
+01
+Background & Problem Statement
+02
+Literature Review & Research Gaps
+03
+System Architecture
+04
+Feature Engineering & Preprocessing
+05
+Machine Learning Methodology
+06
+Hybrid Score Fusion Engine
+07
+Implementation & Container Hardening
+08
+Results, Analysis & Edge Performance
+09
+MLOps & Drift Detection
+10
+Limitations, Future Work & Conclusion
+
+=== SLIDE 3 ===
+Background & Problem Statement
+15B+
+IoT Devices Globally
+by 2030
+14ΓÇô28
+Days avg. signature
+publication delay
+Mirai
+Botnet ΓÇö canonical
+IoT LAN threat
+3 Gaps
+Detection ┬╖ Edge ┬╖
+Operational Resilience
+Detection Gap
+Signature IDS: high precision on known threats but zero recall on zero-days.
+ML-only models: broad generalization but unacceptable false-positive rates.
+Edge Deployment Gap
+Most hybrid IDS research targets cloud infrastructure. IoT requires edge-local processing for latency, bandwidth, and data privacy constraints.
+Operational Resilience Gap
+Deployed ML models degrade silently as traffic distributions evolve. No existing IoT IDS integrates MLOps drift detection with automated retraining.
+Our Solution: Containerised Hybrid IDS on Raspberry Pi 4 ΓÇö combining Zeek/Suricata + Isolation Forest Ensemble + XGBoost + Formal Score Fusion + MLOps Drift Monitoring
+
+=== SLIDE 4 ===
+Review of Literature & Research Gaps
+Signature-Based IDS
+Kolias et al. (2017) ΓÇö Mirai mechanics
+Paxson (1999) ΓÇö Zeek/Bro architecture
+Zarpel├úo et al. (2017) ΓÇö IoT IDS survey
+Gap: Zero-day blind spot (14ΓÇô28 day lag)
+ML Anomaly Detection
+Liu et al. (2008, 2012) ΓÇö Isolation Forest
+Hariri et al. (2021) ΓÇö Extended IF
+┼₧ahin et al. (2021) ΓÇö RobustScaler for IDS
+Gap: High FPR without confidence fusion
+Supervised Classifiers
+Sharafaldin et al. (2018) ΓÇö CICIDS2017
+Moustafa & Slay (2015) ΓÇö UNSW-NB15
+Hassan et al. (2020) ΓÇö Hyperparameter opt.
+Gap: Label dependency, distribution shift
+Hybrid & Edge IDS
+Shi et al. (2016) ΓÇö Edge computing
+Yang et al. (2022) ΓÇö IoT edge anomaly
+Gong et al. (2021) ΓÇö Hybrid ML IDS
+Gap: No formal fusion + MLOps on ARM HW
+Γ£ô  Our Work fills ALL four gaps: Hybrid detection + ARM edge hardware + formal confidence fusion + PSI-based MLOps monitoring
+
+=== SLIDE 5 ===
+System Architecture ΓÇö Four-Layer Design
+Layer 1
+IoT LAN
+Cameras ┬╖ Sensors ┬╖ Plugs
+Layer 2
+Edge Gateway (Pi 4)
+libpcap ┬╖ eBPF ┬╖ Zeek ┬╖ Suricata
+Layer 3
+AI Inference (Docker)
+FastAPI ┬╖ gRPC ┬╖ IF + XGBoost
+Layer 4
+ELK Stack
+Logstash ┬╖ ES ┬╖ Kibana
+
+=== SLIDE 6 ===
+Feature Engineering ΓÇö 21-Feature Taxonomy
+Base Network
+src_port  P_src Γêê [0,65535]
+dst_port  P_dst Γêê [0,65535]
+duration  T_flow = t_endΓêÆt_start
+src_bytes / dst_bytes
+src_pkts / dst_pkts
+Volume Metrics
+total_bytes = B_sent + B_recv
+total_packets = N_sent + N_recv
+Ratio Metrics
+bytes_ratio = B_sent/(B_recv+╬╡)
+packets_ratio = N_sent/(N_recv+╬╡)
+bytes_per_packet_src / dst
+port_ratio = P_src/(P_dst+╬╡)
+Intensity Metrics
+bytes_per_second = B_total/(T+╬╡)
+packets_per_second
+avg_packet_size
+Statistical & Binary
+log_duration = ln(T_flow+1)
+log_total_bytes = ln(B_total+1)
+sqrt_total_packets = ΓêÜN_total
+is_well_known_src/dst_port
+tcp_flags_count / has_dns / has_http
+╬╡ = 1├ù10Γü╗Γü╕ floor prevents division-by-zero  |  Log & sqrt transforms stabilise skewed IoT traffic distributions  |  Binary indicators capture port privilege context
+
+=== SLIDE 7 ===
+Preprocessing ΓÇö Scaler Comparative Analysis
+StandardScaler
+z = (x ΓêÆ ╬╝) / ╧â
+DDoS streams inflate ╧â, compressing normal traffic variance. Benign flows misclassified as anomalies.
+FAILED
+MinMaxScaler
+x' = (x ΓêÆ x_min) / (x_max ΓêÆ x_min)
+Single large DDoS flow collapses all normal traffic metrics toward zero. Extreme range sensitivity.
+FAILED
+RobustScaler
+x' = (x ΓêÆ median) / IQR
+IQR = Q3 ΓêÆ Q1
+Immune to outlier values. Preserves normal traffic variance. Directly contributed +26.97% accuracy gain.
+OPTIMAL +26.97%
+
+=== SLIDE 8 ===
+Machine Learning ΓÇö Isolation Forest Formulation
+Mathematical Foundation
+Anomaly Score
+s(x, n)  =  2^[ -E[h(x)] / c(n) ]
+Score ΓåÆ 1.0 means anomalous
+Path Length Normaliser
+c(n)  =  2H(nΓêÆ1) ΓêÆ 2(nΓêÆ1)/n
+Average BST search length
+Harmonic Approx.
+H(i)  Γëê  ln(i) + 0.5772
+EulerΓÇôMascheroni constant
+Anomalies are Rare
+Few instances, statistically different from normal behaviour ΓÇö isolated by fewer random binary partitions.
+Short Path = Anomaly
+Anomalous flows reach leaf nodes in 2ΓÇô4 splits. Normal flows require 8ΓÇô15 splits. Score normalised to [0,1].
+O(n log ╧ê) Complexity
+Subsampled trees of size ╧ê give O(t┬╖n┬╖log ╧ê) time complexity. Suitable for ARM edge hardware at 1.8 GHz.
+No Labels Required
+Fully unsupervised ΓÇö detects zero-day threats without any labelled attack examples. Essential for IoT deployment.
+
+=== SLIDE 9 ===
+Hyperparameter Optimisation ΓÇö Grid Search Results
+Grid Search Space
+Parameter
+Values Searched
+Optimal
+Contamination ╬▒
+{0.05, 0.10, 0.15, 0.20, 0.25, 0.30}
+0.25
+Max Samples
+{0.5, 0.6, 0.7, 0.8, 0.9, 'auto'}
+0.9
+n_estimators
+{50, 100, 200}
+100
+Why ╬▒ = 0.25?
+Active IoT LANs under botnet exposure exhibit 20ΓÇô30% ambient anomaly density ΓÇö far higher than the enterprise default of 10%. Setting ╬▒=0.25 correctly sizes the decision boundary to this threat density.
+Why max_samples = 0.9?
+IoT traffic is highly repetitive (same device types repeat similar flows). Broad per-tree subsampling allows individual estimators to capture high-density behavioural clusters.
+Accuracy Improvement from Optimisation
+
+=== SLIDE 10 ===
+Ensemble Isolation Forest & Supervised Classifiers
+Ensemble ΓÇö 5 Diverse IF Models
+Model
+╬▒
+max_samples
+max_feat
+Seed
+Model 1
+0.10
+0.7
+0.8
+42
+Model 2
+0.15
+0.8
+0.9
+43
+Model 3
+0.08
+0.6
+0.7
+44
+Model 4
+0.12
+0.9
+1.0
+45
+Model 5
+0.20
+0.5
+0.6
+46
+Majority Vote Decision Rule:
+┼╖_ensemble  =  ≡¥òÇ( (1/5) ├ù ╬ú ┼╖_m  ΓëÑ  0.5 )
+Supervised Classifiers
+XGBoost
+ΓÇó max_depth = 6
+ΓÇó learning_rate = 0.1
+ΓÇó n_estimators = 100
+ΓÇó subsample = 0.8
+ΓÇó colsample_bytree = 0.8
+ΓÇó Early stopping on logloss (20% val. split)
+99.59% Accuracy
+CatBoost
+ΓÇó iterations = 100
+ΓÇó learning_rate = 0.1
+ΓÇó depth = 6
+ΓÇó loss_function = Logloss
+ΓÇó eval_metric = AUC
+Alternative for categorical fields
+
+=== SLIDE 11 ===
+Hybrid Score Fusion Engine ΓÇö Mathematical Design
+Signature Engine
+(Zeek / Suricata)
+S_sig score + |R| rules
+ML Ensemble
+(IF + XGBoost)
+S_ml = avg(A_p)
+Score Fusion Engine
+S_threat
+= w_sig ├ù S_sig  +  w_ml ├ù S_ml
+w_sig=0.6,  w_ml=0.4
+S_sig
+= min(1.0, max(c_i) + ╬┤ ├ù (|R|ΓêÆ1))
+╬┤ = 0.05 multi-match boost
+S_ml
+= (1/|P|) ├ù ╬ú A_p
+Mean of active model scores
+C
+= C_base + ╬ö_sig + ╬ö_ml + ╬ö_extreme
+Confidence score [0,1]
+Severity Verdict
+CRITICAL
+S_threat ΓëÑ T_high
+HIGH
+S_threat ΓëÑ T_med
+MEDIUM
+S_threat ΓëÑ T_low
+LOW
+otherwise
+T_low=0.3  ┬╖  T_med=0.6  ┬╖  T_high=0.8   ΓåÆ   thresholds dynamically adjusted by confidence C
+
+=== SLIDE 12 ===
+Container Hardening & MLOps Drift Detection
+Docker Container Hardening (CIS Benchmark)
+Capability Whitelist
+cap_add: [NET_ADMIN, NET_RAW]
+All other capabilities DROPPED
+Read-Only Filesystem
+read_only: true
+tmpfs: [/run, /tmp]
+Privilege Escalation Block
+security_opt: [no-new-privileges: true]
+Prevents setuid binary escalation
+mTLS Inter-Service
+All gRPC traffic encrypted
+Mutual TLS certificate validation
+MLOps Drift Detection Pipeline
+PSI  =  ╬úß╡ó [ (P_actual,i ΓêÆ P_expected,i) ├ù ln(P_actual,i / P_expected,i) ]
+PSI < 0.1
+Stable
+No action needed.
+Model performing normally.
+PSI 0.1ΓÇô0.2
+Warning
+Minor drift detected.
+Monitor closely.
+PSI > 0.2
+Model Decay
+Trigger auto-retrain.
+Distribution significantly shifted.
+Also: KolmogorovΓÇôSmirnov (KS) test  +  JensenΓÇôShannon (JS) divergence  ΓÇó  Monitoring cadence: every 24 hours
+
+=== SLIDE 13 ===
+Experimental Setup & Dataset
+Hardware Platform
+Device
+Raspberry Pi 4
+CPU
+ARM Cortex-A72
+4-core @ 1.8 GHz
+RAM
+4 GB LPDDR4
+OS
+64-bit Raspberry Pi OS
+Software Stack
+Γ¼í  Python 3.10
+Γ¼í  Scikit-learn 1.3
+Γ¼í  XGBoost 1.7
+Γ¼í  FastAPI 0.103
+Γ¼í  Docker 24.0
+Γ¼í  Zeek  +  Suricata
+Γ¼í  Elasticsearch 8.x  +  Kibana
+Dataset
+211,043
+Network Flow Records
+80/20
+Stratified Train/Test Split
+Attack Categories:
+Γû╕ Mirai Botnet
+Γû╕ Port Scan Recon
+Γû╕ Volumetric DDoS
+Γû╕ Brute-Force SSH/Telnet
+Γû╕ Benign Baseline
+
+=== SLIDE 14 ===
+Results & Analysis ΓÇö Model Performance Comparison
++26.97%
+Accuracy Gain
+(BaselineΓåÆOptimised IF)
++39.92%
+Recall Improvement
++28.12%
+F1-Score Gain
+99.59%
+XGBoost Accuracy
+(Supervised)
+Statistical Validation ΓÇö McNemar's Test:  ╧ç┬▓ = 214.7  (p < 0.0001)  |  95% CI for Optimised IF F1: [86.3%, 87.7%]  |  Bootstrap resampling n=1,000
+
+=== SLIDE 15 ===
+Edge Gateway Performance & Resource Footprint
+1,200
+flows/sec
+Sustained Throughput
+<0.15s
+latency
+End-to-End Inference
+Per Flow (Max Load)
+38%
+CPU usage
+Average Under
+Full Load
+420 MB
+RAM used
+Out of 4 GB Available
+(10.3% utilisation)
+
+=== SLIDE 16 ===
+Limitations & Future Directions
+Current Limitations
+Encrypted traffic (TLS/QUIC) reduces feature diversity ΓÇö payload-blind detection only
+Adversarial evasion: attacker aware of ╬▒=0.25 could craft flows to evade IF boundary
+Small-scale LAN (10 IoT devices) ΓÇö larger multi-vendor deployments may differ
+Labelled retraining required as novel attack families emerge for XGBoost model
+Static 5-tuple flow key ΓÇö application-layer context not captured
+Future Directions
+01
+eBPF/XDP Acceleration
+Kernel-bypass processing targeting 10,000+ flows/sec on gigabit interfaces
+02
+Federated Learning
+Privacy-preserving distributed training across multiple edge gateways
+03
+Adversarial Robustness
+Evaluate and harden against crafted evasion flows using adversarial ML
+04
+6G & NB-IoT Support
+Extend Zeek decoders to cover emerging IoT communication protocols
+05
+XAI / SHAP Analysis
+Generate human-readable alert explanations using Shapley values on XGBoost
+
+=== SLIDE 17 ===
+Conclusion
+01
+Containerised Hybrid IDS
+Raspberry Pi 4 edge gateway integrating Zeek, Suricata, Isolation Forest ensemble, and XGBoost ΓÇö first formally specified hybrid on ARM hardware
+02
+21-Feature Taxonomy
+Mathematically derived feature set with ╬╡-floor stabilisation, log/sqrt transforms, and binary IoT-specific indicators
+03
+Hyperparameter Optimisation
+Grid search raising IF accuracy 54.13% ΓåÆ 81.10% (+26.97 pp), statistically validated (╧ç┬▓=214.7, p<0.0001)
+04
+Formal Score Fusion Engine
+Confidence-adjusted hybrid threat scoring with dynamic severity classification ΓÇö reduces alert fatigue
+05
+Production MLOps Pipeline
+PSI + KS + JS drift monitoring with automated retraining triggers ΓÇö first IoT IDS with operational lifecycle governance
+This work demonstrates that production-grade hybrid IoT security with formal mathematical foundations is viable on constrained ARM edge hardware.
+
+=== SLIDE 18 ===
+Key References
+[1]  F. T. Liu, K. M. Ting, Z.-H. Zhou, "Isolation Forest," ICDM, 2008.
+[2]  C. Kolias et al., "DDoS in the IoT: Mirai and other botnets," IEEE Computer, vol.50, 2017.
+[3]  M. Antonakakis et al., "Understanding the Mirai Botnet," USENIX Security, 2017.
+[4]  S. Hariri, M. C. Kind, R. J. Brunner, "Extended Isolation Forest," IEEE TKDE, 2021.
+[5]  I. Sharafaldin et al., "CICIDS2017 dataset," ICISSP, 2018.
+[6]  N. Moustafa, J. Slay, "UNSW-NB15 dataset," MilCIS, 2015.
+[7]  T. Chen, C. Guestrin, "XGBoost," ACM SIGKDD, 2016.
+[8]  W. Shi et al., "Edge Computing: Vision and Challenges," IEEE IoT J., 2016.
+[9]  T. Combe, A. Martin, R. Di Pietro, "To Docker or Not to Docker," IEEE Cloud Comput., 2016.
+[10] J. Gama et al., "A Survey on Concept Drift Adaptation," ACM Comput. Surv., 2014.
+[11] M. A. M. Vieira et al., "Fast Packet Processing with eBPF and XDP," ACM Comput. Surv., 2020.
+[12] A. Khraisat et al., "Survey of IDS: Techniques, Datasets and Challenges," Cybersecurity, 2019.
+Thank You  ┬╖  Questions Welcome
+Pretham N N  |  preetham.scn24@bmsce.ac.in  |  Guide: Dr. H S Guruprasad
+

@@ -1,0 +1,91 @@
+ 1) High‑level Architecture (text version)
+
+Layers & Components
+
+IoT Device Layer (LAN): Cameras (RTSP/ONVIF), smart sensors (Zigbee/Z‑Wave via hub, Wi‑Fi), smart plugs, thermostats, etc.
+Edge Gateway (Raspberry Pi):
+Packet capture: libpcap/tcpdump / af_packet / mirror port.
+Protocol decoders: Zeek and/or Suricata (metadata + signatures).
+Lightweight collectors: Elastic Agent/Packetbeat, Metricbeat, Filebeat.
+Feature extraction + local buffering; secure forwarding (mTLS).
+Transport / Message Bus:
+HTTPS (Elastic Agent → Elasticsearch/Logstash), optional Kafka/NATS/MQTT for scalable pipelines.
+AI Inference Service (Docker):
+Preprocessing & feature store (tabular/time‑series).
+Models: unsupervised anomaly detection (Autoencoder/Isolation Forest), or supervised (XGBoost/CatBoost) for labeled threats; optional sequence models (GRU/LSTM/Transformer) on flow sequences; optional TLS/JA3 fingerprinting models.
+Hybrid decision engine: signatures (Suricata/Zeek) + ML scores → verdicts.
+REST/gRPC endpoint for scoring; outputs JSON alerts.
+Observability & Storage (Elastic Stack):
+Logstash/Ingest Pipelines → Elasticsearch indices (ILM policies).
+Kibana dashboards, detectors, alerting (email/Slack/Webhook).
+MLOps & Governance:
+Model registry & versioning, drift monitoring, scheduled retraining, CI/CD for Docker images, cert + secret management.
+ 
+
+4) What to Collect & Engineer (Features)
+
+Packet/Flow features
+
+Bytes/packets per flow, duration, inter‑arrival stats (mean/std/jitter).
+Directionality (in/out), TCP flags, retransmits, SYN/FIN ratios.
+Unique destinations, fan‑out/fan‑in, port distributions.
+DNS: query types, domain length/entropy, NXDOMAIN rate.
+TLS: SNI, JA3/JA3S fingerprints, cipher suites (no key material).
+HTTP: methods, status codes, header sizes.
+Periodicity & schedule patterns per device (time‑of‑day baselines).
+Contextual features
+
+Device identity (MAC/OUI → vendor), expected protocols per device class.
+Firmware/version if available (from device inventory).
+Role-based allowlist (e.g., camera should not reach random WAN IPs).
+
+
+5) Detection Strategy (Hybrid)
+
+Signature/Rules (Deterministic): Suricata/Zeek rules for known IOCs, protocol violations, CVEs, port scans, brute force attempts.
+ML (Probabilistic):
+Unsupervised: Isolation Forest/Autoencoders for “unknown unknowns” → anomalies relative to device’s historical profile.
+Supervised: If you have labeled data (Mirai/BrickerBot samples), train XGBoost/CatBoost on flow features.
+Sequence: Time‑windowed flow sequences into GRU/LSTM/Transformer for temporal behaviors.
+Decision Engine: Score fusion (e.g., rule hit → critical; high anomaly + policy violation → high; low score → benign).
+
+
+6) Elastic Stack Mapping
+
+On the Pi: Elastic Agent with integrations
+Packetbeat: network flows, DNS, TLS metadata.
+Filebeat: ship Suricata EVE or Zeek logs.
+Metricbeat: system health (CPU/mem/disk/net).
+Ingest & Indexing: Logstash/Ingest pipelines to parse, enrich (GeoIP ASN for WAN IPs), and map to index templates; ILM for hot‑warm‑delete retention.
+Kibana:
+Dashboards: Device overview, Flow heatmaps, DNS entropy, TLS fingerprint changes, Alert timelines.
+Alerting: Thresholds on ML scores, rule hits, deviation from baselines; notify via email/Slack/webhook.
+
+
+7) Security & Ops
+
+Network: VLANs per device class, deny‑by‑default egress, eBPF/XDP on Pi for efficient mirroring.
+Crypto: mTLS between Pi ↔ AI ↔ Elastic; rotate certs; store secrets via Vault/Keystore.
+Hardening: Read‑only container FS, non‑root containers, ARM‑optimized images, AppArmor/SELinux.
+MLOps: Model registry & versioning, canary deployments, telemetry on precision/recall & drift, scheduled retraining.
+Resilience: Local queueing/backpressure, offline caching on Pi, retry with exponential back‑off.
+
+8) Minimal Viable Build (step‑by‑step)
+
+Pi Setup
+Enable port mirroring (or use a TAP) to capture IoT VLAN.
+Install Suricata (EVE JSON) or Zeek for rich metadata.
+Install Elastic Agent with Packetbeat + Filebeat.
+Elastic Side
+Stand up Elasticsearch + Kibana (or Elastic Cloud).
+Create index templates, ingest pipelines, and ILM policies.
+AI Inference (Docker)
+Build a container exposing /score (REST).
+Start with an Isolation Forest model trained on your baseline week.
+Output: {score, label, features, device_id, flow_id}.
+Integration
+Agent ships EVE + Packetbeat + AI verdicts to Elasticsearch.
+Kibana dashboards for flows, DNS/TLS, and anomaly scores.
+Alerts: High anomaly + unknown JA3 + outbound to new ASN.
+Iterate
+Add allowlists per device, add supervised detectors for known botnets, add sequence model for beaconing.

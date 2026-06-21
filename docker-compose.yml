@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # Elasticsearch for data storage
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: ids-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - ids-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Logstash for data processing
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: ids-logstash
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    volumes:
+      - ./config/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./config/logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    networks:
+      - ids-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9600/_node/stats || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Kibana for visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: ids-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - ids-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # AI Inference Service
+  ai-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.ai-service
+    container_name: ids-ai-service
+    ports:
+      - "8000:8000"
+      - "50051:50051"
+    volumes:
+      - ./models:/app/models
+      - ./config/ai-service.yml:/app/config/config.yml:ro
+      - ./ai_iot_ids:/app/ai_iot_ids
+      - ai-logs:/app/logs
+    environment:
+      - CONFIG_PATH=/app/config/config.yml
+      - MODEL_PATH=/app/models
+      - ELASTICSEARCH_HOST=http://elasticsearch:9200
+    networks:
+      - ids-network
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  elasticsearch-data:
+    driver: local
+  ai-logs:
+    driver: local
+
+networks:
+  ids-network:
+    driver: bridge
