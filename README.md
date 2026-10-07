@@ -4,7 +4,6 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/Security-Hybrid%20ML%20%2B%20Rules-red)](https://github.com/Preethamnn/AI-Driven-iot-intrusion-detection-system)
 
 </div>
@@ -442,10 +441,6 @@ See [docs/API.md](docs/API.md) for complete API documentation.
 - Documentation: [docs/](docs/)
 - Issues: [GitHub Issues](https://github.com/ai-iot-ids/ai-iot-ids/issues)
 - Discussions: [GitHub Discussions](https://github.com/ai-iot-ids/ai-iot-ids/discussions)
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
